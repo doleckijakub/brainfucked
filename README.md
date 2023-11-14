@@ -25,9 +25,9 @@ or
 
 ## Plans
 
-[x] - Full brainfuck functionality
-[ ] - Optimizations
-[ ] - Writing executables directly (without an assembler)
-[ ] - New instructions and control flow
-[ ] - Self hosting
-[ ] - More platform support
+- [x] Full brainfuck functionality
+- [ ] Optimizations
+- [ ] Writing executables directly (without an assembler)
+- [ ] New instructions and control flow
+- [ ] Self hosting
+- [ ] More platform support
