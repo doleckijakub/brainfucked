@@ -49,13 +49,13 @@ size_t scope_stack[SCOPE_STACK_CAP] = { 0 };
 size_t scope_stack_len = 0;
 
 void scope_stack_push(int x) {
-	assert(scope_stack_len >= SCOPE_STACK_CAP && "Stack overflow");
+	assert(scope_stack_len < SCOPE_STACK_CAP && "Stack overflow");
 	scope_stack[scope_stack_len++] = x;
 }
 
 size_t scope_stack_pop(void) {
 	assert(scope_stack_len > 0 && "Stack underflow");
-	return scope_stack[scope_stack_len--];
+	return scope_stack[--scope_stack_len];
 }
 
 int main(int argc, char **argv) {
@@ -73,39 +73,43 @@ int main(int argc, char **argv) {
 	put_nasm("section .text");
 	put_nasm("_start:");
 
-	// r11 will be used as pointer to current memory address
-	put_nasm("mov r11, data");
+	// r15 will be used as pointer to current memory address
+	put_nasm("mov r15, data");
 
-	int ip = 0; char c; while(c = code[ip]) {
+	int ip = 0; size_t scope_counter = 0; char c; while(c = code[ip]) {
 		switch(c) {
 			case '+':
-				put_nasm("inc byte [r11] ; +"); break;
+				put_nasm("inc byte [r15] ; +"); break;
 			case '-':
-				put_nasm("dec byte [r11] ; -"); break;
+				put_nasm("dec byte [r15] ; -"); break;
 			case '<':
-				put_nasm("dec r11 ; <"); break;
+				put_nasm("dec r15 ; <"); break;
 			case '>':
-				put_nasm("inc r11 ; >"); break;
+				put_nasm("inc r15 ; >"); break;
 			case '.':
 				put_nasm("mov rax, 1 ; .");
 				put_nasm("mov rdi, 1");
-				put_nasm("mov rsi, r11");
+				put_nasm("mov rsi, r15");
 				put_nasm("mov rdx, 1");
 				put_nasm("syscall");
 				break;
 			case ',':
 				panic("%c unimplemented", c); break;
 			case '[':
-				put_nasm("o_%d: ; [", 0);
-				put_nasm("cmp byte [r11], 0");
-				put_nasm("jz c_%d", 0);
+				scope_stack_push(++scope_counter);
+				DEBUG(scope_counter, "%zu", scope_counter);
+				put_nasm("o_%zu: ; [", scope_counter);
+				put_nasm("cmp byte [r15], 0");
+				put_nasm("jz c_%zu", scope_counter);
 				break;
 			case ']':
-				put_nasm("c_%d: ; ]", 0);
-				put_nasm("cmp byte [r11], 0");
-				put_nasm("jnz o_%d", 0);
+				size_t scope = scope_stack_pop();
+				DEBUG(scope, "%zu", scope);
+				put_nasm("c_%zu: ; ]", scope);
+				put_nasm("cmp byte [r15], 0");
+				put_nasm("jnz o_%zu", scope);
 				break;
-			default: ;
+			// default: ;
 		}
 		++ip;
 	}
