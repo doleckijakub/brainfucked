@@ -76,6 +76,20 @@ int main(int argc, char **argv) {
 	// r15 will be used as pointer to current memory address
 	put_nasm("mov r15, data");
 
+	put_nasm("mov  eax, 16");
+	put_nasm("mov  edi, 0");
+	put_nasm("mov  esi, 0x5401");
+	put_nasm("mov  rdx, termios");
+	put_nasm("syscall");
+
+	put_nasm("and byte [c_lflag], 0FDh"); // clear ICANON
+
+	put_nasm("mov  eax, 16");
+	put_nasm("mov  edi, 0");
+	put_nasm("mov  esi, 0x5402");
+	put_nasm("mov  rdx, termios");
+	put_nasm("syscall");
+
 	int ip = 0; size_t scope_counter = 0; char c; while(c = code[ip]) {
 		switch(c) {
 			case '+':
@@ -94,17 +108,20 @@ int main(int argc, char **argv) {
 				put_nasm("syscall");
 				break;
 			case ',':
-				panic("%c unimplemented", c); break;
+				put_nasm("mov rax, 0 ; .");
+				put_nasm("mov rdi, 1");
+				put_nasm("mov rsi, r15");
+				put_nasm("mov rdx, 1");
+				put_nasm("syscall");
+				break;
 			case '[':
 				scope_stack_push(++scope_counter);
-				DEBUG(scope_counter, "%zu", scope_counter);
 				put_nasm("o_%zu: ; [", scope_counter);
 				put_nasm("cmp byte [r15], 0");
 				put_nasm("jz c_%zu", scope_counter);
 				break;
 			case ']':
 				size_t scope = scope_stack_pop();
-				DEBUG(scope, "%zu", scope);
 				put_nasm("c_%zu: ; ]", scope);
 				put_nasm("cmp byte [r15], 0");
 				put_nasm("jnz o_%zu", scope);
@@ -120,6 +137,13 @@ int main(int argc, char **argv) {
 	
 	put_nasm("section .bss");
 	put_nasm("data: resb 256");
+	put_nasm("termios:");
+	put_nasm("c_iflag resd 1");
+	put_nasm("c_oflag resd 1");
+	put_nasm("c_cflag resd 1");
+	put_nasm("c_lflag resd 1");
+	put_nasm("c_line  resb 1");
+	put_nasm("c_cc    resb 19");
 
 	#undef put_nasm
 
