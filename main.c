@@ -107,16 +107,40 @@ int main(int argc, char **argv) {
 	put_nasm("mov  rdx, termios");
 	put_nasm("syscall");
 
-	int ip = 0; size_t scope_counter = 0; char c; while(c = code[ip]) {
+	size_t ip = 0, scope_counter = 0; char c; while(c = code[ip]) {
+		size_t last_ip, repeats;
+		for(last_ip = ip; code[last_ip] == c; last_ip++);
+		repeats = last_ip - ip;
+
 		switch(c) {
 			case '+':
-				put_nasm("inc byte [r15] ; +"); break;
+				if(repeats == 1)
+					put_nasm("inc byte [r15] ; +");
+				else
+					put_nasm("add byte [r15], %zu ; %zu +", repeats, repeats);
+				ip = last_ip - 1;
+				break;
 			case '-':
-				put_nasm("dec byte [r15] ; -"); break;
+				if(repeats == 1)
+					put_nasm("dec byte [r15] ; -");
+				else
+					put_nasm("sub byte [r15], %zu ; %zu -", repeats, repeats);
+				ip = last_ip - 1;
+				break;
 			case '<':
-				put_nasm("dec r15 ; <"); break;
+				if(repeats == 1)
+					put_nasm("dec r15 ; <");
+				else
+					put_nasm("sub r15, %zu ; %zu <", repeats, repeats);
+				ip = last_ip - 1;
+				break;
 			case '>':
-				put_nasm("inc r15 ; >"); break;
+				if(repeats == 1)
+					put_nasm("inc r15 ; >");
+				else
+					put_nasm("add r15, %zu ; %zu >", repeats, repeats);
+				ip = last_ip - 1;
+				break;
 			case '.':
 				put_nasm("call op_write");
 				break;
