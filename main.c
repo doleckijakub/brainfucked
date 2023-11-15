@@ -71,6 +71,23 @@ int main(int argc, char **argv) {
 	// nasm code
 	put_nasm("global _start");
 	put_nasm("section .text");
+	
+	put_nasm("op_write:");
+	put_nasm("mov rax, 1 ; .");
+	put_nasm("mov rdi, 1");
+	put_nasm("mov rsi, r15");
+	put_nasm("mov rdx, 1");
+	put_nasm("syscall");
+	put_nasm("ret");
+				
+	put_nasm("op_read:");
+	put_nasm("mov rax, 0 ; ,");
+	put_nasm("mov rdi, 1");
+	put_nasm("mov rsi, r15");
+	put_nasm("mov rdx, 1");
+	put_nasm("syscall");
+	put_nasm("ret");
+
 	put_nasm("_start:");
 
 	// r15 will be used as pointer to current memory address
@@ -101,18 +118,10 @@ int main(int argc, char **argv) {
 			case '>':
 				put_nasm("inc r15 ; >"); break;
 			case '.':
-				put_nasm("mov rax, 1 ; .");
-				put_nasm("mov rdi, 1");
-				put_nasm("mov rsi, r15");
-				put_nasm("mov rdx, 1");
-				put_nasm("syscall");
+				put_nasm("call op_write");
 				break;
 			case ',':
-				put_nasm("mov rax, 0 ; .");
-				put_nasm("mov rdi, 1");
-				put_nasm("mov rsi, r15");
-				put_nasm("mov rdx, 1");
-				put_nasm("syscall");
+				put_nasm("call op_read");
 				break;
 			case '[':
 				scope_stack_push(++scope_counter);
