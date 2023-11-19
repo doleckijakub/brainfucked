@@ -1,184 +1,175 @@
 #include <stdio.h>
-#include <stdlib.h>
-#include <errno.h>
-#include <string.h>
 #include <assert.h>
+#include <stdbool.h>
+#include <string.h>
 
-#define error(fmt, ...) fprintf(stderr, "Error: " fmt "\n", __VA_ARGS__)
-#define warn(fmt, ...) fprintf(stderr, "Warning: " fmt "\n", __VA_ARGS__)
-#define info(fmt, ...) fprintf(stderr, "Info: " fmt "\n", __VA_ARGS__)
-#define debug(fmt, ...) fprintf(stderr, "Debug: " fmt "\n", __VA_ARGS__)
+#include "logger.h"
+#include "lexer.h"
+#include "codegen.h"
 
-#define DEBUG(x, fmt, ...) debug("%s:%d: %s = " fmt, __FILE__, __LINE__, #x, __VA_ARGS__)
-
-#define panic(fmt, ...) do { \
-	fprintf(stderr, "Fatal error: " fmt "\n", __VA_ARGS__); \
-	exit(1); \
-} while(0)
-
-char *read_file_contents(const char *filename) {
-	FILE *fp = fopen(filename, "rb");
-	if(!fp) error("Could not open file %s: %s", filename, strerror(errno));
-	long sz; char *buf;
-
-	fseek(fp, 0, SEEK_END);
-	sz = ftell(fp);
-	fseek(fp, 0, SEEK_SET);
-
-	buf = (char*) malloc(sz + 1);
-
-	if(fread(buf, 1, sz, fp) != sz) goto on_fail;
-	
-	buf[sz] = 0;
-	fclose(fp);
-
-	return buf;
-
-on_fail:
-
-	free(buf);
-	fclose(fp);
-
-	error("Failed to read file %s: %s", filename, strerror(errno));
-
-	return NULL;
+#define next_arg() __impl__next_arg(&argc, &argv)
+char *__impl__next_arg(int *argc, char ***argv) {
+	assert(*argc > 0);
+	char *arg = **argv;
+	--*argc;
+	++*argv;
+	return arg;
 }
 
-#define SCOPE_STACK_CAP 1024
-size_t scope_stack[SCOPE_STACK_CAP] = { 0 };
-size_t scope_stack_len = 0;
+void usage(char *argv0) {
+	panic("Usage: %s [-o output_filename] [-m memory_buffer_size] filename", argv0);
+}
 
-void scope_stack_push(int x) {
+#define streq(a, b) (strcmp(a, b) == 0)
+
+#define SCOPE_STACK_CAP 1024
+static size_t scope_stack[SCOPE_STACK_CAP] = { 0 };
+static size_t scope_stack_len = 0;
+
+static void scope_stack_push(int x) {
 	assert(scope_stack_len < SCOPE_STACK_CAP && "Stack overflow");
 	scope_stack[scope_stack_len++] = x;
 }
 
-size_t scope_stack_pop(void) {
+static size_t scope_stack_pop(void) {
 	assert(scope_stack_len > 0 && "Stack underflow");
 	return scope_stack[--scope_stack_len];
 }
 
 int main(int argc, char **argv) {
-	if(argc != 2) panic("Usage: %s file.bf", argv[0]);
+	char *program_name = next_arg();
 
-	const size_t memory_size = 256;
+	struct {
+		char *input_filename;
+		char *output_filename;
+		size_t memory_size;
+	} config;
 
-	char *code = read_file_contents(argv[1]);
-	FILE *sink = stdout;
+	while(argc > 0) {
+		char *arg = next_arg();
 
-	#define put_nasm(fmt, ...) fprintf(sink, fmt "\n", ##__VA_ARGS__)
-
-	// nasm code
-	put_nasm("global _start");
-	put_nasm("section .text");
-	
-	put_nasm("op_write:");
-	put_nasm("mov rax, 1 ; .");
-	put_nasm("mov rdi, 1");
-	put_nasm("mov rsi, r15");
-	put_nasm("mov rdx, 1");
-	put_nasm("syscall");
-	put_nasm("ret");
-				
-	put_nasm("op_read:");
-	put_nasm("mov rax, 0 ; ,");
-	put_nasm("mov rdi, 1");
-	put_nasm("mov rsi, r15");
-	put_nasm("mov rdx, 1");
-	put_nasm("syscall");
-	put_nasm("ret");
-
-	put_nasm("_start:");
-
-	// r15 will be used as pointer to current memory address
-	put_nasm("mov r15, data");
-
-	put_nasm("mov  eax, 16");
-	put_nasm("mov  edi, 0");
-	put_nasm("mov  esi, 0x5401");
-	put_nasm("mov  rdx, termios");
-	put_nasm("syscall");
-
-	put_nasm("and byte [c_lflag], 0FDh"); // clear ICANON
-
-	put_nasm("mov  eax, 16");
-	put_nasm("mov  edi, 0");
-	put_nasm("mov  esi, 0x5402");
-	put_nasm("mov  rdx, termios");
-	put_nasm("syscall");
-
-	size_t ip = 0, scope_counter = 0; char c; while(c = code[ip]) {
-		size_t last_ip, repeats;
-		for(last_ip = ip; code[last_ip] == c; last_ip++);
-		repeats = last_ip - ip;
-
-		switch(c) {
-			case '+':
-				if(repeats == 1)
-					put_nasm("inc byte [r15] ; +");
-				else
-					put_nasm("add byte [r15], %zu ; %zu +", repeats, repeats);
-				ip = last_ip - 1;
-				break;
-			case '-':
-				if(repeats == 1)
-					put_nasm("dec byte [r15] ; -");
-				else
-					put_nasm("sub byte [r15], %zu ; %zu -", repeats, repeats);
-				ip = last_ip - 1;
-				break;
-			case '<':
-				if(repeats == 1)
-					put_nasm("dec r15 ; <");
-				else
-					put_nasm("sub r15, %zu ; %zu <", repeats, repeats);
-				ip = last_ip - 1;
-				break;
-			case '>':
-				if(repeats == 1)
-					put_nasm("inc r15 ; >");
-				else
-					put_nasm("add r15, %zu ; %zu >", repeats, repeats);
-				ip = last_ip - 1;
-				break;
-			case '.':
-				put_nasm("call op_write");
-				break;
-			case ',':
-				put_nasm("call op_read");
-				break;
-			case '[':
-				scope_stack_push(++scope_counter);
-				put_nasm("o_%zu: ; [", scope_counter);
-				put_nasm("cmp byte [r15], 0");
-				put_nasm("jz c_%zu", scope_counter);
-				break;
-			case ']':
-				size_t scope = scope_stack_pop();
-				put_nasm("c_%zu: ; ]", scope);
-				put_nasm("cmp byte [r15], 0");
-				put_nasm("jnz o_%zu", scope);
-				break;
-			// default: ;
+		if(streq(arg, "-o")) {
+			if(argc == 0) {
+				panic("`%s` expected a filename", arg);
+			} else {
+				arg = next_arg();
+				config.output_filename = arg;
+			}
+		} else if(streq(arg, "-m")) {
+			if(argc == 0) {
+				panic("`%s` expected an integer", arg);
+			} else {
+				arg = next_arg();
+				config.memory_size = atoi(arg);
+			}
+		} else {
+			if(config.input_filename != NULL) {
+				panic("More than one input files provided: %s, %s... For now %s only suports single file compilation", config.input_filename, arg, program_name);
+			} else {
+				config.input_filename = arg;
+			}
 		}
-		++ip;
 	}
 
-	put_nasm("mov rax, 60");
-	put_nasm("mov rdi, 0");
-	put_nasm("syscall");
+	if(config.input_filename == NULL) panic("No input file provided");
+
+	Lexer lexer = lexer_init(config.input_filename);
+	Codegen codegen = codegen_init(config.output_filename, config.memory_size);
+
+	codegen_put_nasm(&codegen, "global _start");
+	codegen_put_nasm(&codegen, "section .text");
 	
-	put_nasm("section .bss");
-	put_nasm("data: resb 256");
-	put_nasm("termios:");
-	put_nasm("c_iflag resd 1");
-	put_nasm("c_oflag resd 1");
-	put_nasm("c_cflag resd 1");
-	put_nasm("c_lflag resd 1");
-	put_nasm("c_line  resb 1");
-	put_nasm("c_cc    resb 19");
+	codegen_put_nasm(&codegen, "op_write:");
+	codegen_put_nasm(&codegen, "mov rax, 1 ; .");
+	codegen_put_nasm(&codegen, "mov rdi, 1");
+	codegen_put_nasm(&codegen, "mov rsi, r15");
+	codegen_put_nasm(&codegen, "mov rdx, 1");
+	codegen_put_nasm(&codegen, "syscall");
+	codegen_put_nasm(&codegen, "ret");
+				
+	codegen_put_nasm(&codegen, "op_read:");
+	codegen_put_nasm(&codegen, "mov rax, 0 ; ,");
+	codegen_put_nasm(&codegen, "mov rdi, 1");
+	codegen_put_nasm(&codegen, "mov rsi, r15");
+	codegen_put_nasm(&codegen, "mov rdx, 1");
+	codegen_put_nasm(&codegen, "syscall");
+	codegen_put_nasm(&codegen, "ret");
 
-	#undef put_nasm
+	codegen_put_nasm(&codegen, "_start:");
 
-	free(code);
+	// r15 will be used as pointer to current memory address
+	codegen_put_nasm(&codegen, "mov r15, data");
+
+	codegen_put_nasm(&codegen, "mov  eax, 16");
+	codegen_put_nasm(&codegen, "mov  edi, 0");
+	codegen_put_nasm(&codegen, "mov  esi, 0x5401");
+	codegen_put_nasm(&codegen, "mov  rdx, termios");
+	codegen_put_nasm(&codegen, "syscall");
+
+	codegen_put_nasm(&codegen, "and byte [c_lflag], 0FDh"); // clear ICANON
+
+	codegen_put_nasm(&codegen, "mov  eax, 16");
+	codegen_put_nasm(&codegen, "mov  edi, 0");
+	codegen_put_nasm(&codegen, "mov  esi, 0x5402");
+	codegen_put_nasm(&codegen, "mov  rdx, termios");
+	codegen_put_nasm(&codegen, "syscall");
+
+	bool eof = false;
+	size_t scope_counter = 0;
+	while(!eof) {
+		Token token = lexer_next_token(&lexer);
+		switch(token.type) {
+			case TOKEN_ADD:
+				codegen_put_nasm(&codegen, "inc byte [r15] ; +");
+				break;
+			case TOKEN_SUB:
+				codegen_put_nasm(&codegen, "dec byte [r15] ; -");
+				break;
+			case TOKEN_MVL:
+				codegen_put_nasm(&codegen, "dec r15 ; <");
+				break;
+			case TOKEN_MVR:
+				codegen_put_nasm(&codegen, "inc r15 ; >");
+				break;
+			case TOKEN_OPEN:
+				scope_stack_push(++scope_counter);
+				codegen_put_nasm(&codegen, "o_%zu: ; [", scope_counter);
+				codegen_put_nasm(&codegen, "cmp byte [r15], 0");
+				codegen_put_nasm(&codegen, "jz c_%zu", scope_counter);
+				break;
+			case TOKEN_CLOSE:
+				{
+					size_t scope = scope_stack_pop();
+					codegen_put_nasm(&codegen, "c_%zu: ; ]", scope);
+					codegen_put_nasm(&codegen, "cmp byte [r15], 0");
+					codegen_put_nasm(&codegen, "jnz o_%zu", scope);
+					break;
+				}
+			case TOKEN_STD_WRITE:
+				codegen_put_nasm(&codegen, "call op_write");
+				break;
+			case TOKEN_STD_READ:
+				codegen_put_nasm(&codegen, "call op_read");
+				break;
+			case TOKEN_EOF: eof = true; break;
+		}
+	}
+
+
+	codegen_put_nasm(&codegen, "mov rax, 60");
+	codegen_put_nasm(&codegen, "mov rdi, 0");
+	codegen_put_nasm(&codegen, "syscall");
+	
+	codegen_put_nasm(&codegen, "section .bss");
+	codegen_put_nasm(&codegen, "data: resb 256");
+	codegen_put_nasm(&codegen, "termios:");
+	codegen_put_nasm(&codegen, "c_iflag resd 1");
+	codegen_put_nasm(&codegen, "c_oflag resd 1");
+	codegen_put_nasm(&codegen, "c_cflag resd 1");
+	codegen_put_nasm(&codegen, "c_lflag resd 1");
+	codegen_put_nasm(&codegen, "c_line  resb 1");
+	codegen_put_nasm(&codegen, "c_cc    resb 19");
+
+	codegen_free(&codegen);
+	lexer_free(&lexer);
 }
