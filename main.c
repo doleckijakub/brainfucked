@@ -123,8 +123,6 @@ int main(int argc, char **argv) {
 	while(!eof) {
 		Token token = lexer_next_token(&lexer);
 
-		printf("Token: [type: '%c', as.repeated.count: %zu]\n", token.type, token.as.repeated.count);
-
 		const char *add_inst = token.as.repeated.count == 1 ? "inc" : "add";
 		const char *sub_inst = token.as.repeated.count == 1 ? "dec" : "sub";
 
