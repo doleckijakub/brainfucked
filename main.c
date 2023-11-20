@@ -45,6 +45,10 @@ int main(int argc, char **argv) {
 		size_t memory_size;
 	} config;
 
+	config.input_filename = NULL;
+	config.output_filename = "a.nasm";
+	config.memory_size = 256;
+
 	while(argc > 0) {
 		char *arg = next_arg();
 
@@ -118,18 +122,24 @@ int main(int argc, char **argv) {
 	size_t scope_counter = 0;
 	while(!eof) {
 		Token token = lexer_next_token(&lexer);
+
+		printf("Token: [type: '%c', as.repeated.count: %zu]\n", token.type, token.as.repeated.count);
+
+		const char *add_inst = token.as.repeated.count == 1 ? "inc" : "add";
+		const char *sub_inst = token.as.repeated.count == 1 ? "dec" : "sub";
+
 		switch(token.type) {
+			case TOKEN_NOP: break;
 			case TOKEN_ADD:
-				codegen_put_nasm(&codegen, "inc byte [r15] ; +");
-				break;
 			case TOKEN_SUB:
-				codegen_put_nasm(&codegen, "dec byte [r15] ; -");
-				break;
 			case TOKEN_MVL:
-				codegen_put_nasm(&codegen, "dec r15 ; <");
-				break;
 			case TOKEN_MVR:
-				codegen_put_nasm(&codegen, "inc r15 ; >");
+				codegen_put_nasm(&codegen, "%s %s %c %zu",
+					token.type % 15 == 0 /* < and - */ ? sub_inst : add_inst,
+					token.type < '/' /* + and - */ ? "byte [r15]" : "r15",
+					token.as.repeated.count == 1 ? ';' : ',',
+					token.as.repeated.count
+					);
 				break;
 			case TOKEN_OPEN:
 				scope_stack_push(++scope_counter);
@@ -137,14 +147,12 @@ int main(int argc, char **argv) {
 				codegen_put_nasm(&codegen, "cmp byte [r15], 0");
 				codegen_put_nasm(&codegen, "jz c_%zu", scope_counter);
 				break;
-			case TOKEN_CLOSE:
-				{
+			case TOKEN_CLOSE: {
 					size_t scope = scope_stack_pop();
 					codegen_put_nasm(&codegen, "c_%zu: ; ]", scope);
 					codegen_put_nasm(&codegen, "cmp byte [r15], 0");
 					codegen_put_nasm(&codegen, "jnz o_%zu", scope);
-					break;
-				}
+				} break;
 			case TOKEN_STD_WRITE:
 				codegen_put_nasm(&codegen, "call op_write");
 				break;

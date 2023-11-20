@@ -8,6 +8,7 @@ typedef struct {
 	size_t line, row;
 } Location;
 
+#define TOKEN_NOP 1
 #define TOKEN_ADD '+'
 #define TOKEN_SUB '-'
 #define TOKEN_MVL '<'
@@ -21,6 +22,11 @@ typedef struct {
 typedef struct {
 	Location location;
 	char type;
+	union {
+		struct {
+			size_t count;
+		} repeated; 
+	} as;
 } Token;
 
 typedef struct {

@@ -9,9 +9,6 @@
 
 #include "logger.h"
 
-// static void read_file_contents(const char *filename, char **buf, size_t *len) {
-// }
-
 Lexer lexer_init(char *filename) {
 	Lexer lexer = {
 		.filename = filename
@@ -64,18 +61,40 @@ static void lexer_trim(Lexer *lexer) {
 
 Token lexer_next_token(Lexer *lexer) {
 	lexer_trim(lexer);
-	if(lexer_empty(lexer)) return (Token) { 0 }; // TOKEN_EOF
-	
-	Location location = (Location) {
+
+	Token token = { 0 };
+
+	token.location = (Location) {
 		.filename = lexer->filename,
 		.line = lexer->row,
 		.row = lexer->cur - lexer->bol
 	};
 
+	if(lexer_empty(lexer)) return token;
+	
 	char c = lexer->code[lexer->cur];
-	lexer_chop_char(lexer);
-	return (Token) {
-		.location = location,
-		.type = c
-	};
+	switch(c) {
+		case TOKEN_ADD:
+		case TOKEN_SUB:
+		case TOKEN_MVL:
+		case TOKEN_MVR: {
+			size_t count = 0;
+			do { lexer_chop_char(lexer); ++count; } while(lexer->code[lexer->cur] == c);
+			token.type = c;
+			token.as.repeated.count = count;
+		} break;
+		case TOKEN_OPEN:
+		case TOKEN_CLOSE:
+		case TOKEN_STD_WRITE:
+		case TOKEN_STD_READ: {
+			lexer_chop_char(lexer);
+			token.type = c;
+		} break;
+		default: {
+			lexer_chop_char(lexer);
+			token.type = TOKEN_NOP;
+		};
+	}
+
+	return token;
 }
